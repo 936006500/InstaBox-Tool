@@ -209,17 +209,17 @@ class NamedTunnelTests(unittest.TestCase):
                     exited, child_status = os.waitpid(pid, os.WNOHANG)
                     if exited:
                         status = os.waitstatus_to_exitcode(child_status)
-            if status is None:
+            # Closing the PTY is not proof that waitpid can reap the child yet.
+            while status is None and time.monotonic() < deadline:
                 exited, child_status = os.waitpid(pid, os.WNOHANG)
-                if not exited:
-                    time.sleep(0.05)
-                    exited, child_status = os.waitpid(pid, os.WNOHANG)
                 if exited:
                     status = os.waitstatus_to_exitcode(child_status)
-                else:
-                    os.kill(pid, signal.SIGKILL)
-                    os.waitpid(pid, 0)
-                    self.fail("Unexpected prompt or hung installer: " + transcript.decode(errors="replace"))
+                    break
+                time.sleep(0.01)
+            if status is None:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+                self.fail("Unexpected prompt or hung installer: " + transcript.decode(errors="replace"))
         finally:
             os.close(fd)
         result = transcript.decode(errors="replace")

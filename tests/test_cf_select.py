@@ -488,10 +488,14 @@ class InterfaceTests(PrivateFixture):
                             done, status = os.waitpid(pid, os.WNOHANG)
                             if done:
                                 code = os.waitstatus_to_exitcode(status)
-                    if code is None:
+                    # PTY EOF can precede a reapable exit status. Keep the
+                    # original deadline while waiting for the child to finish.
+                    while code is None and time.monotonic() < deadline:
                         done, status = os.waitpid(pid, os.WNOHANG)
                         if done:
                             code = os.waitstatus_to_exitcode(status)
+                            break
+                        time.sleep(0.01)
                     visible = transcript.decode("utf-8", errors="replace")
                     self.assertEqual(code, 0, visible)
                     self.assertEqual(answers, [], visible)
