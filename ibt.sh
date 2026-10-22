@@ -519,7 +519,7 @@ tunnel_menu() {
     item 2 '刷新快捷地址'
     item 3 '绑定固定域名'
     item 4 '自动配置域名'
-    item 5 '托管固定隧道'
+    item 5 '配置固定隧道'
     item 6 '关闭快捷隧道'
     item 7 '检查节点连接'
     item 8 '设置快捷传输'
@@ -838,7 +838,7 @@ ibt quick-autostart status|enable|disable	管理开机自动新建临时隧道
 ibt cf	生成 CF 优选 VLESS 链接，自动准备依赖
 ibt cf --show-last	查看上次生成的优选链接
 ibt bind / bind-auto	手动 / 自动绑定域名
-ibt tunnel / stop-quick	托管固定隧道 / 关闭快捷隧道
+ibt tunnel / stop-quick	配置固定隧道（粘贴 Token） / 关闭快捷隧道
 ibt keepalive auto	一键保活当前授权可见的运行中机器
 ibt keepalive auto-local	自动识别并保活当前机器
 ibt keepalive setup	配置 API 保活或 SSH 保活（单台 / 多台）

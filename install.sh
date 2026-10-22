@@ -245,13 +245,205 @@ ensure_cloudflared() {
   fetch_verified "$CF_URL" "$CF_SHA256" "$CF_BIN"
   chmod 700 "$CF_BIN"
 }
+normalize_tunnel_token() {
+  python3 -c '
+import base64, json, re, shlex, sys
+try:
+    value = sys.stdin.read(16385)
+    if len(value) > 16384:
+        raise ValueError()
+    words = shlex.split(value.strip())
+    if len(words) == 5 and words[:4] == ["sudo", "cloudflared", "service", "install"]:
+        words = words[4:]
+    elif len(words) == 4 and words[:3] == ["cloudflared", "service", "install"]:
+        words = words[3:]
+    if len(words) != 1:
+        raise ValueError()
+    token = words[0]
+    if not token.startswith("eyJ") or not re.fullmatch(r"[A-Za-z0-9_+/=-]+", token):
+        raise ValueError()
+    data = json.loads(base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True))
+    if not isinstance(data, dict):
+        raise ValueError()
+    if not re.fullmatch(r"[a-fA-F0-9]{32}", str(data.get("a", ""))):
+        raise ValueError()
+    if not re.fullmatch(r"[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", str(data.get("t", ""))):
+        raise ValueError()
+    if not isinstance(data.get("s"), str) or not data["s"].strip():
+        raise ValueError()
+    print(token)
+except (ValueError, TypeError, UnicodeError):
+    sys.exit(1)
+'
+}
+check_named_path() {
+  local path="$1" kind="$2" mode
+  [[ -e "$path" || -L "$path" ]] || return 0
+  [[ ! -L "$path" && -O "$path" ]] || die "固定隧道配置路径归属异常或为符号链接，未修改：$path"
+  if [[ "$kind" == directory ]]; then
+    [[ -d "$path" ]] || die "固定隧道配置路径不是目录：$path"
+  else
+    [[ -f "$path" && "$(stat -c %h -- "$path")" == 1 ]] || die "固定隧道配置不是独立的普通文件，未修改：$path"
+  fi
+  mode="$(stat -c %a -- "$path")"
+  (( (8#$mode & 0022) == 0 )) || die "固定隧道配置可被其他用户写入，请先检查权限：$path"
+}
+tunnel_main() (
+  preflight; read_state
+  (( $# == 0 )) || die '请直接运行 ibt tunnel，并在隐藏输入提示中粘贴 Token。'
+  named_dir="$HOME/.config/cloudflared"
+  named_file=''; named_ref=''; named_had_unit=no; named_had_token=no
+  named_old_active=no; named_old_enabled=no
+  named_tmp=''; named_backup=''; named_changed=no; named_touched=no; named_committed=no
+  for named_parent in "$HOME" "$HOME/.config" "$named_dir" "$HOME/.config/systemd" "$UNIT_DIR"; do
+    check_named_path "$named_parent" directory
+  done
+  check_named_path "$CF_UNIT" file
+  named_fragment="$(systemctl --user show --property=FragmentPath --value "$CF_SERVICE" 2>/dev/null || true)"
+  [[ -z "$named_fragment" || "$named_fragment" == "$CF_UNIT" ]] || die '固定隧道服务由其他位置管理，未修改。'
+  if [[ -e "$CF_UNIT" ]]; then
+    owned_unit "$CF_UNIT" || die '已有同名隧道服务由其他工具管理，未修改。'
+    named_had_unit=yes
+    for named_name in token tunnel.token; do
+      for named_prefix in '%h' "$HOME"; do
+        if grep -Fqx -- "ExecStart=${named_prefix}/.local/share/insta-box/bin/cloudflared tunnel run --token-file ${named_prefix}/.config/cloudflared/${named_name}" "$CF_UNIT"; then
+          named_file="$named_dir/$named_name"
+          named_ref="%h/.config/cloudflared/$named_name"
+        fi
+      done
+    done
+    [[ -n "$named_file" ]] || die '现有固定隧道服务使用自定义 Token 路径，未修改。'
+  else
+    if systemctl --user is-active --quiet cloudflared.service || systemctl --user is-enabled --quiet cloudflared.service; then
+      die '已有 cloudflared 服务由其他工具管理，请先确认其配置；本次未修改。'
+    fi
+    for named_name in token tunnel.token; do
+      check_named_path "$named_dir/$named_name" file
+      if [[ -s "$named_dir/$named_name" ]]; then
+        named_file="$named_dir/$named_name"; break
+      fi
+    done
+    named_file="${named_file:-$named_dir/token}"
+    named_ref="%h/.config/cloudflared/${named_file##*/}"
+  fi
+  check_named_path "$named_file" file
+  [[ ! -e "$named_file" ]] || named_had_token=yes
+  systemctl --user is-active --quiet "$CF_SERVICE" && named_old_active=yes
+  systemctl --user is-enabled --quiet "$CF_SERVICE" && named_old_enabled=yes
+
+  named_cleanup() {
+    local result="$1" rollback_ok=yes
+    trap - EXIT INT TERM
+    set +e
+    unset named_input named_token
+    if [[ "$named_committed" != yes ]]; then
+      if [[ "$named_changed" == yes ]]; then
+        if [[ -n "$named_backup" ]]; then
+          mv -fT -- "$named_backup" "$named_file" || rollback_ok=no
+        else
+          rm -f -- "$named_file" || rollback_ok=no
+        fi
+      fi
+      if [[ "$named_touched" == yes ]]; then
+        if [[ "$named_had_unit" == yes ]]; then
+          if [[ "$named_old_active" == yes && "$rollback_ok" == yes ]]; then
+            systemctl --user restart "$CF_SERVICE" >/dev/null 2>&1 || rollback_ok=no
+          else
+            systemctl --user stop "$CF_SERVICE" >/dev/null 2>&1 || rollback_ok=no
+          fi
+          if [[ "$named_old_enabled" != yes ]]; then
+            systemctl --user disable "$CF_SERVICE" >/dev/null 2>&1 || rollback_ok=no
+          fi
+        else
+          systemctl --user disable --now "$CF_SERVICE" >/dev/null 2>&1 || rollback_ok=no
+          rm -f -- "$CF_UNIT" || rollback_ok=no
+          systemctl --user daemon-reload >/dev/null 2>&1 || rollback_ok=no
+        fi
+      fi
+      if [[ "$named_changed" == yes || "$named_touched" == yes ]]; then
+        if [[ "$rollback_ok" == yes ]]; then
+          warn '本次配置未完成，已恢复操作前的固定隧道配置。'
+        else
+          warn '恢复原配置时遇到错误，请查看 ibt logs named；原 Token 备份如有保留，请勿删除。'
+        fi
+      fi
+    fi
+    [[ -z "$named_tmp" ]] || rm -f -- "$named_tmp"
+    if [[ -n "$named_backup" && ( "$rollback_ok" == yes || "$named_committed" == yes ) ]]; then
+      rm -f -- "$named_backup"
+    fi
+    exit "$result"
+  }
+  trap 'named_cleanup "$?"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  section '配置固定隧道'
+  named_token=''
+  if [[ -t 0 && -r /dev/tty && -w /dev/tty ]]; then
+    say '粘贴 Cloudflare 的 Tunnel Token，或整条 Install as service 命令。'
+    say '输入隐藏，粘贴后按回车。'
+    while :; do
+      if [[ -s "$named_file" ]]; then
+        named_prompt='  Tunnel Token（回车沿用，粘贴新 Token 更换，输入 0 取消）： '
+      else
+        named_prompt='  Tunnel Token（粘贴后回车，直接回车取消）： '
+      fi
+      if ! IFS= read -r -s -p "$named_prompt" named_input </dev/tty; then
+        printf '\n' >/dev/tty; info '已取消。'; return 0
+      fi
+      printf '\n' >/dev/tty
+      if [[ "$named_input" == 0 || ( -z "$named_input" && ! -s "$named_file" ) ]]; then
+        info '已取消。'; return 0
+      fi
+      [[ -n "$named_input" ]] || break
+      if named_token="$(printf '%s' "$named_input" | normalize_tunnel_token)"; then break; fi
+      unset named_input
+      warn 'Token 格式不正确，请重新粘贴完整 Token 或 Cloudflare 的安装命令。'
+    done
+  elif [[ ! -s "$named_file" ]]; then
+    die '尚未配置 Tunnel Token，请在交互式 Terminal 或 SSH 终端运行 ibt tunnel。'
+  fi
+  unset named_input
+  ensure_linger
+  ensure_cloudflared
+  if [[ -n "$named_token" ]] && { [[ ! -s "$named_file" ]] || [[ "$named_token" != "$(< "$named_file")" ]]; }; then
+    install -d -m 700 "$named_dir"
+    named_tmp="$(mktemp "$named_dir/.ibt-token.XXXXXX")"
+    printf '%s\n' "$named_token" > "$named_tmp"
+    chmod 600 "$named_tmp"
+    if [[ "$named_had_token" == yes ]]; then
+      named_backup="$(mktemp "$named_dir/.ibt-token-backup.XXXXXX")"
+      cp -- "$named_file" "$named_backup"
+    fi
+    named_changed=yes
+    mv -fT -- "$named_tmp" "$named_file"
+    named_tmp=''
+  fi
+  unset named_token
+  named_touched=yes
+  install_named_tunnel_unit "$named_ref"
+  if [[ "$named_changed" == yes && "$named_had_unit" == yes ]]; then
+    systemctl --user restart "$CF_SERVICE" || { warn '固定隧道启动失败，请查看 ibt logs named。'; return 1; }
+  fi
+  if ! systemctl --user is-enabled --quiet "$CF_SERVICE" || ! systemctl --user is-active --quiet "$CF_SERVICE"; then
+    warn '固定隧道服务未正常启动，请查看 ibt logs named。'; return 1
+  fi
+  named_committed=yes
+  info '固定隧道服务已启动。'
+  field '本机入口' "http://127.0.0.1:$PORT"
+  say '返回 Cloudflare，等待显示已连接或 Healthy，再点击继续并添加路由。'
+  say '保存路由后，选择「绑定固定域名」，或运行 ibt bind 填入完整主机名。'
+)
 install_named_tunnel_unit() {
   # Existing named Tunnel; never create/modify/replace its DNS or route.
-  local token_path=''
-  for f in '%h/.config/cloudflared/token' '%h/.config/cloudflared/tunnel.token'; do
-    local relative="${f#%h}"
-    if [[ -s "${HOME}${relative}" ]]; then token_path="$f"; break; fi
-  done
+  local token_path="${1:-}"
+  if [[ -z "$token_path" ]]; then
+    for f in '%h/.config/cloudflared/token' '%h/.config/cloudflared/tunnel.token'; do
+      local relative="${f#%h}"
+      if [[ -s "${HOME}${relative}" ]]; then token_path="$f"; break; fi
+    done
+  fi
   if [[ -z "$token_path" ]]; then
     return
   fi
@@ -599,7 +791,7 @@ bind_main() {
   MODE='fixed-pending'
   write_state
   section 'Cloudflare 域名绑定'
-  say '打开 Zero Trust → Networking → Tunnels → 选择已有 Tunnel。'
+  say '打开 Cloudflare → 联网（Networking）→ Tunnels → 选择已有隧道。'
   say '进入 Routes → Add route → Published application，填写：'
   printf '\n'
   field '代理域名' "${DOMAIN}（Public hostname）"
@@ -758,7 +950,7 @@ usage() {
   bash install.sh quick-autostart status|enable|disable  管理开机自动新建临时隧道
   bash install.sh stop-quick    固定域名可用后，关闭快捷隧道
   bash install.sh restart       重启 sing-box
-  bash install.sh tunnel        自动托管现有固定 Tunnel 的 cloudflared 服务
+  bash install.sh tunnel        粘贴 Tunnel Token，自动保存并启动固定隧道
   bash install.sh uninstall     只卸载本脚本创建的本地组件
 
   IBT_DOMAIN=proxy.example.com    可在安装时预先记录固定域名，但不要求立即绑定路由
@@ -783,7 +975,7 @@ case "${1:-install}" in
   bind) bind_main "${2:-}" ;;
   bind-auto) bind_auto_main "${2:-}" ;;
   stop-quick) stop_quick_main ;;
-  tunnel) preflight; read_state; ensure_linger; ensure_cloudflared; install_named_tunnel_unit; status_main ;;
+  tunnel) shift; tunnel_main "$@" ;;
   logs)
     case "${2:-singbox}" in
       quick) [[ -f "$QUICK_LOG" ]] && tail -n 100 "$QUICK_LOG" || warn '尚未生成 Quick Tunnel 日志。' ;;

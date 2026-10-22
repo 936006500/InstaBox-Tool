@@ -81,6 +81,8 @@ API Key 保存在 `~/.config/insta-box/api-key`，文件权限为 `0600`。云�
 - 一个已经添加到 Cloudflare、正常托管的域名。
 - 一台**已经完成本项目一键安装**的 InstaBox 机器。后面的终端命令都在这台机器上执行，使用当初安装工具的普通用户；可以用网页 Terminal，也可以先通过 SSH 登录。
 
+**已安装旧版本的用户，先运行 `ibt update`，更新后重新输入 `ibt` 打开新菜单。**
+
 整个过程需要保存两项内容：**Tunnel Token** 是连接隧道的一长串凭据；**完整主机名**是你设置的域名，例如 `proxy.example.com`。下面会分别说明在哪里复制、在哪里使用。
 
 #### 第 1 步：在 Cloudflare 创建隧道，复制 Token
@@ -90,43 +92,31 @@ API Key 保存在 `~/.config/insta-box/api-key`，文件权限为 `0600`。云�
 3. 点击右上角 **＋创建隧道（Create Tunnel）**，填写一个自己能认出的名称，例如 `instabox`，然后点击 **创建隧道**。
 4. 在操作系统处选择 **Debian**；如果页面还要求选择架构，本项目使用 **64-bit / amd64 / x86_64**。这里选的是远端机器的系统，不是你电脑的系统；其他 Linux 系统按实际情况选择。
 5. 找到下方 **Install cloudflared**。这一栏用于安装隧道程序；**本项目一键安装时已经安装了 cloudflared，可以跳过这一项**。如需按网页安装，点击右侧复制按钮，粘贴到目标机器的 Terminal 或 SSH 终端中执行。
-6. 找到 **Install as service**，点击右侧复制按钮，先粘贴到自己电脑的记事本中。命令大致如下：
+6. 找到 **Install as service**，点击右侧复制按钮。复制的命令大致如下：
 
    ```text
    sudo cloudflared service install eyJ……
    ```
 
-7. **只复制最后从 `eyJ` 开头、一直到末尾的那一整串字符**，这就是 Tunnel Token。不要带上前面的 `sudo cloudflared service install`，不要多复制空格；示例中的省略号不属于真实 Token。
+7. 末尾**从 `eyJ` 开头的完整字符串**就是 Tunnel Token。可以只复制这一串，也可以直接保留刚复制的整条命令，下一步都能粘贴。示例中的省略号不属于真实 Token。
 
-**这里的 Install as service 只用于取得 Token，无需执行整条命令。** 下一步由本工具保存 Token 并启动隧道。保留 Cloudflare 页面，暂时不用点击“继续”。Token 请妥善保存，勿对外公开。[官方 Token 获取说明](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/)
+**不用在终端执行这条安装命令。** 下一步把它粘贴到本工具的 Token 输入提示中，脚本会提取 Token 并启动隧道。保留 Cloudflare 页面，暂时不用点击“继续”。Token 请妥善保存，勿对外公开。[官方 Token 获取说明](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/)
 
-#### 第 2 步：回到机器终端，保存 Token 并启动隧道
+#### 第 2 步：回到机器终端，按提示配置固定隧道
 
-回到安装本工具的那台机器。如果仍在 `ibt` 菜单里，输入 `0` 逐级退出，回到 Linux 命令行。
+回到安装本工具的那台机器，输入 `ibt` 打开菜单，依次选择 **3「节点管理」→ 3「管理域名隧道」→ 5「配置固定隧道」**。已经在菜单中时，直接进入该选项即可。
 
-**完整复制下方命令并执行，无需修改代码。** 出现“粘贴 Tunnel Token”提示后，再粘贴第 1 步复制的整串 Token，按回车。输入时不显示字符，属于正常现象。
+也可以在命令行直接运行：
 
 ```bash
-(
-  set -e
-  umask 077
-  IFS= read -r -s -p '粘贴 Tunnel Token，然后回车：' IBT_TUNNEL_TOKEN </dev/tty
-  printf '\n'
-  if [[ "$IBT_TUNNEL_TOKEN" != eyJ* || "$IBT_TUNNEL_TOKEN" =~ [[:space:]] ]]; then
-    printf 'Token 格式不正确，请复制 eyJ 开头的完整字符串后重试。\n'
-    exit 1
-  fi
-  install -d -m 700 "$HOME/.config/cloudflared"
-  printf '%s\n' "$IBT_TUNNEL_TOKEN" > "$HOME/.config/cloudflared/token"
-  chmod 600 "$HOME/.config/cloudflared/token"
-  unset IBT_TUNNEL_TOKEN
-  ibt tunnel
-)
+ibt tunnel
 ```
 
-这段命令会把 Token 保存到本工具读取的位置，再启动固定隧道。**当前版本的 `ibt tunnel` 本身不会询问 Token，因此首次配置需要先完成上述保存操作。**
+出现 Token 提示后，粘贴第 1 步复制的**完整 Token 或整条安装命令**，然后回车。**输入时不显示字符，属于正常现象。** 脚本会检查格式、保存 Token 并启动隧道。
 
-执行后查看输出中的 **固定隧道**和**本机入口**：固定隧道应显示“运行中”；记下本机入口，例如 `http://127.0.0.1:20000`，下一步要填入 Cloudflare。也可以随时运行 `ibt status` 再次查看。
+已有配置时，直接回车可沿用，粘贴新 Token 会自动更换并重启；本地保存或服务启动失败时会保留原配置并提示原因。需要取消时输入 `0`；首次配置直接回车也会取消。
+
+执行成功后会提示“**固定隧道服务已启动**”，并显示**本机入口**，例如 `http://127.0.0.1:20000`。记下这个地址，下一步要填入 Cloudflare；也可以随时运行 `ibt status` 再次查看。
 
 回到 Cloudflare 页面，等待隧道显示已连接；隧道列表中的正常状态为 **Healthy**，然后点击下方 **继续（Continue）**。如果一直未连接，先在机器上运行 `ibt logs named` 查看原因。
 
@@ -164,7 +154,7 @@ proxy.example.com
 
 **只填域名，不带 `https://`，不带端口和路径。** 这里的域名必须与 Cloudflare 路由中的完整主机名一致。这个操作会记录域名并生成固定节点链接；第 3 步已经保存好路由，无需再添加一次。
 
-菜单操作对应 **`ibt` → 3「节点管理」→ 3「管理域名隧道」→ 3「绑定固定域名」**；Token 保存好后，“5 托管固定隧道”对应的就是 `ibt tunnel`。
+菜单操作对应 **`ibt` → 3「节点管理」→ 3「管理域名隧道」→ 3「绑定固定域名」**。
 
 #### 第 5 步：复制固定节点，导入客户端验证
 
@@ -189,8 +179,10 @@ ibt stop-quick
 | 遇到的情况 | 怎么处理 |
 | --- | --- |
 | 找不到自己托管的域名 | 确认当前登录的 Cloudflare 账号正确，且域名已添加到该账号并正常托管 |
-| 点击“托管固定隧道”后仍未运行 | 按第 2 步保存 Token；`ibt tunnel` 不会弹出 Token 输入框。仍有问题时查看 `ibt logs named` |
-| 重新保存了正确的 Token，网页仍未连接 | 执行 `systemctl --user restart insta-box-tunnel.service`，再看 Cloudflare 状态和 `ibt logs named` |
+| 找不到“配置固定隧道”，或运行后没有 Token 提示 | 先执行 `ibt update`，更新后重新打开 `ibt` 菜单 |
+| Token 提示格式错误 | 重新复制 `eyJ` 开头的完整字符串，或 Cloudflare 的整条 `sudo cloudflared service install ...` 命令 |
+| 需要更换 Token | 再次运行 `ibt tunnel` 并粘贴新 Token，脚本会自动保存并重启 |
+| 固定隧道未运行，或网页一直未连接 | 按终端提示处理，再用 `ibt logs named` 查看原因 |
 | 添加路由时提示同名 DNS 记录已存在 | 换一个尚未使用的子域名，并在 `ibt bind` 中使用新的完整主机名 |
 | 隧道显示 Healthy，但固定节点无法连接 | 核对服务 URL 中的端口、HTTP 协议，以及 `ibt bind` 的域名；再确认客户端导入的是固定节点链接 |
 
