@@ -9,7 +9,7 @@
 >
 > 默认使用 **Cloudflare 临时隧道（Quick Tunnel）**，无需自备域名。**机器完整重启或隧道重建后，临时域名和节点链接会变化**；运行 `ibt show` 获取当前链接，重新导入客户端。
 >
-> **需要长期固定的节点链接，请配置固定隧道并绑定自己的域名。** 入口为「节点管理 → 管理域名隧道」，详见[固定域名说明](docs/usage.md#固定域名)。[Cloudflare 官方说明](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
+> **想让节点地址保持固定？** 准备一个已在 Cloudflare 托管的域名，按[固定隧道分步教程](docs/usage.md#固定域名)，依次完成创建隧道、复制 Token、启动隧道、添加路由和绑定域名。菜单入口为「3 节点管理 → 3 管理域名隧道」。[临时隧道官方说明](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
 
 ## 开始使用
 
@@ -69,6 +69,7 @@ ibt
 | 需要做什么 | 命令或入口 |
 | --- | --- |
 | 查看节点链接 | `ibt show` |
+| 改用自己的固定域名 | 按[固定隧道分步教程](docs/usage.md#固定域名)操作，含 Cloudflare 网页每一步和 Token 保存方法 |
 | 一键保活运行中的机器 | **4 机器保活 → 1 一键保活机器**，或 `ibt keepalive auto` |
 | 查看保活结果和下次执行时间 | `ibt keepalive status` |
 | 生成 CF 优选链接 | **3 节点管理 → 8 优选节点地址**，或 `ibt cf` |

@@ -74,19 +74,134 @@ API Key 保存在 `~/.config/insta-box/api-key`，文件权限为 `0600`。云�
 
 ### 固定域名
 
-运行 `ibt bind`，按提示输入自己的域名。在 Cloudflare Tunnel 的 Published application 中填写：
+固定隧道让节点使用你自己的地址，例如 `proxy.example.com`，重启隧道后也能继续使用这个域名。下面以**首次创建固定隧道**为例，按“Cloudflare 网页 → 机器终端 → Cloudflare 网页 → 机器终端”的顺序操作。
 
-| 字段 | 示例 |
+开始前准备好：
+
+- 一个已经添加到 Cloudflare、正常托管的域名。
+- 一台**已经完成本项目一键安装**的 InstaBox 机器。后面的终端命令都在这台机器上执行，使用当初安装工具的普通用户；可以用网页 Terminal，也可以先通过 SSH 登录。
+
+整个过程需要保存两项内容：**Tunnel Token** 是连接隧道的一长串凭据；**完整主机名**是你设置的域名，例如 `proxy.example.com`。下面会分别说明在哪里复制、在哪里使用。
+
+#### 第 1 步：在 Cloudflare 创建隧道，复制 Token
+
+1. 登录 [Cloudflare 控制台](https://dash.cloudflare.com/)。
+2. 在左侧菜单点击 **联网（Networking）**，再点击 **Tunnels**。
+3. 点击右上角 **＋创建隧道（Create Tunnel）**，填写一个自己能认出的名称，例如 `instabox`，然后点击 **创建隧道**。
+4. 在操作系统处选择 **Debian**；如果页面还要求选择架构，本项目使用 **64-bit / amd64 / x86_64**。这里选的是远端机器的系统，不是你电脑的系统；其他 Linux 系统按实际情况选择。
+5. 找到下方 **Install cloudflared**。这一栏用于安装隧道程序；**本项目一键安装时已经安装了 cloudflared，可以跳过这一项**。如需按网页安装，点击右侧复制按钮，粘贴到目标机器的 Terminal 或 SSH 终端中执行。
+6. 找到 **Install as service**，点击右侧复制按钮，先粘贴到自己电脑的记事本中。命令大致如下：
+
+   ```text
+   sudo cloudflared service install eyJ……
+   ```
+
+7. **只复制最后从 `eyJ` 开头、一直到末尾的那一整串字符**，这就是 Tunnel Token。不要带上前面的 `sudo cloudflared service install`，不要多复制空格；示例中的省略号不属于真实 Token。
+
+**这里的 Install as service 只用于取得 Token，无需执行整条命令。** 下一步由本工具保存 Token 并启动隧道。保留 Cloudflare 页面，暂时不用点击“继续”。Token 请妥善保存，勿对外公开。[官方 Token 获取说明](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/)
+
+#### 第 2 步：回到机器终端，保存 Token 并启动隧道
+
+回到安装本工具的那台机器。如果仍在 `ibt` 菜单里，输入 `0` 逐级退出，回到 Linux 命令行。
+
+**完整复制下方命令并执行，无需修改代码。** 出现“粘贴 Tunnel Token”提示后，再粘贴第 1 步复制的整串 Token，按回车。输入时不显示字符，属于正常现象。
+
+```bash
+(
+  set -e
+  umask 077
+  IFS= read -r -s -p '粘贴 Tunnel Token，然后回车：' IBT_TUNNEL_TOKEN </dev/tty
+  printf '\n'
+  if [[ "$IBT_TUNNEL_TOKEN" != eyJ* || "$IBT_TUNNEL_TOKEN" =~ [[:space:]] ]]; then
+    printf 'Token 格式不正确，请复制 eyJ 开头的完整字符串后重试。\n'
+    exit 1
+  fi
+  install -d -m 700 "$HOME/.config/cloudflared"
+  printf '%s\n' "$IBT_TUNNEL_TOKEN" > "$HOME/.config/cloudflared/token"
+  chmod 600 "$HOME/.config/cloudflared/token"
+  unset IBT_TUNNEL_TOKEN
+  ibt tunnel
+)
+```
+
+这段命令会把 Token 保存到本工具读取的位置，再启动固定隧道。**当前版本的 `ibt tunnel` 本身不会询问 Token，因此首次配置需要先完成上述保存操作。**
+
+执行后查看输出中的 **固定隧道**和**本机入口**：固定隧道应显示“运行中”；记下本机入口，例如 `http://127.0.0.1:20000`，下一步要填入 Cloudflare。也可以随时运行 `ibt status` 再次查看。
+
+回到 Cloudflare 页面，等待隧道显示已连接；隧道列表中的正常状态为 **Healthy**，然后点击下方 **继续（Continue）**。如果一直未连接，先在机器上运行 `ibt logs named` 查看原因。
+
+#### 第 3 步：在 Cloudflare 添加路由，设置固定域名
+
+1. 进入刚创建的隧道，在 **路由（Routes）** 区域点击 **添加路由（Add route）**。
+2. 选择 **已发布的应用程序（Published application）**。
+3. 按下表填写。这里用 `proxy.example.com` 演示，请换成自己的域名：
+
+| 页面字段 | 怎么填 |
 | --- | --- |
-| Subdomain | `proxy` |
-| Domain | `example.com` |
-| Path | 留空 |
-| Service Type | `HTTP` |
-| Service URL | `127.0.0.1:20000`，以脚本显示的本机端口为准 |
+| 左侧「子域名 / Subdomain」 | 填一个好记的名称，例如 `proxy` |
+| 右侧「域名 / Domain」 | 选择自己已在 Cloudflare 托管的域名，例如 `example.com` |
+| 下方显示的「完整主机名 / Hostname」 | 复制并保存，例如 `proxy.example.com`，第 4 步要用 |
+| 「路径 / Path」 | **留空，不填写** |
+| 「服务 URL / Service URL」 | 填第 2 步脚本显示的**完整本机入口**，例如 `http://127.0.0.1:20000` |
 
-用 `ibt tunnel` 托管固定隧道，用 `ibt show` 获取节点链接。固定节点确认可用后，可用 `ibt stop-quick` 停止临时隧道。
+**`20000` 只是示例，以脚本显示的本机端口为准。** `127.0.0.1` 表示运行本工具的这台机器；这里填写 `http://`。如果你的页面把协议与地址分成两个输入项，则服务类型选择 **HTTP**，地址只填 `127.0.0.1:实际端口`。路径保持为空，不需要填节点链接中的 WebSocket 路径。
 
-也可使用 `ibt bind-auto` 自动配置 Cloudflare 资源。它需要单独的 Cloudflare API Token 及相应 Tunnel、DNS 权限；InstaBox API Key 不用于 Cloudflare 授权。修改前会保存相关配置备份。
+4. 检查无误后，点击 **添加路由（Add route）** 保存。Cloudflare 会为这个主机名创建对应的 DNS 记录。[官方创建与路由说明](https://developers.cloudflare.com/tunnel/get-started/) · [DNS 说明](https://developers.cloudflare.com/tunnel/concepts/routing/)
+
+#### 第 4 步：回到机器终端，把完整主机名填给脚本
+
+执行：
+
+```bash
+ibt bind
+```
+
+看到“代理域名”提示后，粘贴第 3 步保存的**完整主机名**，例如：
+
+```text
+proxy.example.com
+```
+
+**只填域名，不带 `https://`，不带端口和路径。** 这里的域名必须与 Cloudflare 路由中的完整主机名一致。这个操作会记录域名并生成固定节点链接；第 3 步已经保存好路由，无需再添加一次。
+
+菜单操作对应 **`ibt` → 3「节点管理」→ 3「管理域名隧道」→ 3「绑定固定域名」**；Token 保存好后，“5 托管固定隧道”对应的就是 `ibt tunnel`。
+
+#### 第 5 步：复制固定节点，导入客户端验证
+
+运行：
+
+```bash
+ibt show
+```
+
+找到“**固定节点**”下面的完整 `vless://` 链接，节点名为 **InstaBox-Tool-Fixed**，复制后导入客户端并测试连接。此时可能同时显示旧的 **IBT-Quick** 临时节点，注意选用刚生成的固定节点。
+
+确认固定节点能正常使用后，如果不再需要临时节点，再执行：
+
+```bash
+ibt stop-quick
+```
+
+固定域名用于节点连接，是否成功以客户端实际连接为准；不需要通过浏览器打开域名来判断。
+
+#### 常见卡点
+
+| 遇到的情况 | 怎么处理 |
+| --- | --- |
+| 找不到自己托管的域名 | 确认当前登录的 Cloudflare 账号正确，且域名已添加到该账号并正常托管 |
+| 点击“托管固定隧道”后仍未运行 | 按第 2 步保存 Token；`ibt tunnel` 不会弹出 Token 输入框。仍有问题时查看 `ibt logs named` |
+| 重新保存了正确的 Token，网页仍未连接 | 执行 `systemctl --user restart insta-box-tunnel.service`，再看 Cloudflare 状态和 `ibt logs named` |
+| 添加路由时提示同名 DNS 记录已存在 | 换一个尚未使用的子域名，并在 `ibt bind` 中使用新的完整主机名 |
+| 隧道显示 Healthy，但固定节点无法连接 | 核对服务 URL 中的端口、HTTP 协议，以及 `ibt bind` 的域名；再确认客户端导入的是固定节点链接 |
+
+<details>
+<summary>可选：使用 Cloudflare API 自动添加路由</summary>
+
+已有固定隧道、希望由脚本添加路由和 DNS 时，可使用 `ibt bind-auto`。它需要另行创建 **Cloudflare API Token**，授予 Tunnel 配置读写、Zone Read、DNS Read/Edit 权限，修改前会保存相关配置备份。
+
+这里的 **Cloudflare API Token** 与上文 `eyJ` 开头的 **Tunnel Token** 用途不同，也不同于 InstaBox 的 `ibk_...` API Key。按上面的网页流程配置时，无需使用 `ibt bind-auto` 或另建 API Token。
+
+</details>
 
 ## CF 优选
 
