@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 umask 077
 export PYTHONDONTWRITEBYTECODE=1
-REPO='Pretic/InstaBox-Tool'
+REPO='936006500/InstaBox-Tool'
 APP="$HOME/.local/share/insta-box"
 CLI="$APP/cli"
 MODE="${1:-install}"
