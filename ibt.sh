@@ -11,6 +11,7 @@ CORE="$HERE/install.sh"
 PLATFORM="$HERE/keepalive.sh"
 CLOUD="$HERE/cloud.py"
 OPTIMIZER="$HERE/machine_opt.py"
+CYCLE="$HERE/cycle.sh"
 SYSTEM_INFO="$HERE/system_info.py"
 TIME_SETTINGS="$HERE/ui_time.py"
 CF_SELECTOR="$HERE/cf_select.py"
@@ -68,6 +69,39 @@ optimize() {
   [[ -f "$OPTIMIZER" ]] || { error '机器优化组件缺失，请更新工具。'; return 1; }
   command -v python3 >/dev/null 2>&1 || { error '机器优化需要 Python 3。'; return 1; }
   python3 "$OPTIMIZER" "$@"
+}
+cycle() {
+  [[ -f "$CYCLE" ]] || { error '定时重启任务组件缺失，请更新工具。'; return 1; }
+  bash "$CYCLE" "$@"
+}
+cycle_menu() {
+  local n
+  while :; do
+    screen '定时重启任务'
+    cycle status
+    printf '\n'
+    say '在当前机器上，每 N 小时：暂停所选机器 B，等待后启动 B。'
+    printf '\n'
+    item 1 '配置任务'
+    item 2 '立即执行一轮'
+    item 3 '启动常驻任务'
+    item 4 '停止常驻任务'
+    item 5 '查看日志'
+    item 6 '删除任务'
+    item 0 '返回工具主页'
+    n="$(ask '请选择：')" || return
+    [[ -n "$n" && "$n" != 0 ]] || return
+    case "$n" in
+      1) cycle setup;;
+      2) cycle run;;
+      3) cycle start;;
+      4) cycle stop;;
+      5) cycle logs;;
+      6) cycle remove;;
+      *) say '请输入菜单序号。';;
+    esac
+    pause_once
+  done
 }
 local_info() {
   [[ -f "$SYSTEM_INFO" ]] || { error '本机信息组件缺失，请更新工具。'; return 1; }
@@ -791,7 +825,8 @@ main_menu() {
     item 4 '机器保活'
     item 5 '机器管理'
     item 6 '机器优化'
-    item 7 '更新卸载'
+    item 7 '定时重启任务'
+    item 8 '更新卸载'
     item 0 '退出菜单'
     printf '\n'
     n="$(ask '请选择：')" || break
@@ -807,8 +842,9 @@ main_menu() {
       4) machine_pages keepalive; continue;;
       5) machine_pages cloud; continue;;
       6) optimize_menu; continue;;
-      7) tool_menu; continue;;
-      *) say '请输入 0–7。'; pause_once;;
+      7) cycle_menu; continue;;
+      8) tool_menu; continue;;
+      *) say '请输入 0–8。'; pause_once;;
     esac
   done
 }
@@ -878,6 +914,11 @@ ibt optimize swap-on [MiB]	开启本工具 Swap（不填则采用建议容量）
 ibt optimize swap-off	关闭本工具创建的 Swap
 ibt optimize bbr-on|bbr-off	开启 BBR + fq / 恢复原值
 ibt optimize restore	恢复本工具管理的系统设置
+ibt cycle setup	配置定时重启任务（选机器B/间隔/延迟）
+ibt cycle run	立即执行一轮：暂停B → 等待 → 启动B
+ibt cycle start|stop	启动 / 停止常驻循环任务
+ibt cycle status|logs	查看任务状态 / 运行日志
+ibt cycle remove	删除定时重启任务
 ibt update / uninstall	更新 / 卸载工具
 EOF
 }
@@ -893,6 +934,7 @@ case "${1:-menu}" in
   keepalive) shift; platform "$@";;
   cloud) cloud "${2:-overview}" "${@:3}";;
   optimize) optimize "${2:-status}" "${@:3}";;
+  cycle) shift; cycle "$@";;
   cf) shift; cf_nodes "$@";;
   doctor) platform doctor "${2:-}";;
   machines) cloud select "${@:2}";;
@@ -905,3 +947,4 @@ case "${1:-menu}" in
   help|-h|--help) help_msg;;
   *) error '未知操作，请运行 ibt help。'; exit 2;;
 esac
+
