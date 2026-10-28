@@ -9,7 +9,7 @@ APP="$HOME/.local/share/insta-box"
 CLI="$APP/cli"
 MODE="${1:-install}"
 REF="${IBT_REF:-${IB_REF:-${ISB_REF:-}}}"
-FILES=(setup.sh ibt.sh install.sh keepalive.sh platform.mjs cf_route.py cf_select.py heartbeat.py cloud.py ssh_tokens.py machine_opt.py node_probe.py system_info.py ui_time.py migrate.py)
+FILES=(setup.sh ibt.sh install.sh keepalive.sh platform.mjs cf_route.py cf_select.py heartbeat.py cloud.py ssh_tokens.py machine_opt.py node_probe.py system_info.py ui_time.py cycle.sh migrate.py)
 die() { printf '  [失败] %s\n' "$*" >&2; exit 1; }
 [[ $(uname -s) == Linux ]] || die '请在 Linux SSH 终端运行。'
 (( EUID != 0 )) || die '请使用普通用户，不要加 sudo。'
@@ -67,3 +67,4 @@ case ":$PATH:" in
     ;;
 esac
 printf '  下次登录： 输入 ibt 打开管理菜单。\n'
+#（注：内容由AI生成）

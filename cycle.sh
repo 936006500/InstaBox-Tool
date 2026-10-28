@@ -156,3 +156,4 @@ case "${1:-status}" in
   remove) remove ;;
   *) error '用法：ibt cycle setup|run|start|stop|status|logs|remove' >&2; exit 2 ;;
 esac
+#（注：内容由AI生成）

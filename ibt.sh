@@ -947,4 +947,4 @@ case "${1:-menu}" in
   help|-h|--help) help_msg;;
   *) error '未知操作，请运行 ibt help。'; exit 2;;
 esac
-
+#（注：内容由AI生成）
